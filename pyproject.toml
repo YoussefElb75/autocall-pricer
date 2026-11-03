@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autocall-pricer"
+dynamic = ["version"]
+description = "Monte Carlo pricing of autocalls and worst-of autocalls under multi-asset Black-Scholes, validated against QuantLib"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "scipy>=1.10"]
+
+[project.optional-dependencies]
+validation = ["QuantLib>=1.30"]
+notebook = ["matplotlib>=3.7", "jupyter", "nbconvert", "ipykernel"]
+dev = ["pytest>=7", "QuantLib>=1.30", "matplotlib>=3.7", "nbconvert", "nbformat", "ipykernel", "mypy>=1.10"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "autocall_pricer.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: long-running Monte Carlo tests (deselect with -m \"not slow\")"]
+
+[tool.mypy]
+files = ["src/autocall_pricer"]
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["QuantLib", "scipy", "scipy.*"]
+ignore_missing_imports = true
