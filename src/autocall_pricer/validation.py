@@ -319,7 +319,7 @@ def run_validation(
 
 def to_markdown(rows: list[ValidationRow]) -> str:
     header = (
-        "| Cas | Référence QuantLib | MC | Erreur std | QuantLib | Écart abs. | Tolérance | Écart / SE | OK |\n"
+        "| Case | QuantLib reference | MC | Std error | QuantLib | Abs. diff | Tolerance | Diff / SE | OK |\n"
         "|---|---|---:|---:|---:|---:|---:|---:|:---:|"
     )
     body = [

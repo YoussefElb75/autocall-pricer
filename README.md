@@ -2,79 +2,78 @@
 
 [![CI](https://github.com/YoussefElb75/autocall-pricer/actions/workflows/ci.yml/badge.svg)](https://github.com/YoussefElb75/autocall-pricer/actions/workflows/ci.yml)
 
-Librairie Python de pricing **Monte Carlo** pour **autocalls** mono-sous-jacent et **worst-of autocalls**
-(2 à 5 sous-jacents) sous Black-Scholes multi-actifs corrélé, avec grecques par perturbation et
-**validation contre QuantLib**. Code écrit de zéro, à but pédagogique et de démonstration.
+Python library for **Monte Carlo** pricing of single-underlying **autocalls** and **worst-of autocalls**
+(2 to 5 underlyings) under correlated multi-asset Black-Scholes, with bump-and-reprice greeks and
+**validation against QuantLib**. Written from scratch, for educational and demonstration purposes.
 
-## Objectif
+## Goals
 
-- Moteur Monte Carlo vectorisé (NumPy), reproductible (graine explicite, ou graine tirée à la création
-  et conservée dans `engine.seed`), avec variables antithétiques et intervalle de confiance du prix.
-- Produits : autocall (rappel, coupon avec ou sans mémoire, barrière de coupon type Phoenix, step-down,
-  période de non-rappel, protection du capital à maturité) et sa version worst-of.
-- Grecques par bump : delta, gamma, vega par sous-jacent, sensibilité à la corrélation.
-- Validation systématique contre QuantLib sur les cas qui ont une référence fiable.
+- Vectorised Monte Carlo engine (NumPy), reproducible (explicit seed, or a seed drawn at creation and
+  stored in `engine.seed`), with antithetic variates and a confidence interval for the price.
+- Products: autocall (early redemption, coupon with or without memory, Phoenix-style coupon barrier,
+  step-down, non-call period, capital protection at maturity) and its worst-of version.
+- Bump-and-reprice greeks: delta, gamma, vega per underlying, correlation sensitivity.
+- Systematic validation against QuantLib on the cases that have a reliable reference.
 
-## Modèle
+## Model
 
-Sous la probabilité risque-neutre, pour les actifs $i = 1..n$ :
+Under the risk-neutral measure, for assets $i = 1..n$:
 
 $$\frac{dS_i(t)}{S_i(t)} = (r - q_i)\,dt + \sigma_i\,dW_i(t), \qquad d\langle W_i, W_j\rangle_t = \rho_{ij}\,dt$$
 
-avec $r$, $q_i$, $\sigma_i$, $\rho$ constants. Entre deux dates de la grille, la transition log-normale est
-simulée **exactement** (pas de biais de discrétisation) :
+with constant $r$, $q_i$, $\sigma_i$, $\rho$. Between two grid dates, the log-normal transition is
+simulated **exactly** (no discretisation bias):
 
 $$S_i(t_{k+1}) = S_i(t_k)\exp\!\Big(\big(r - q_i - \tfrac12\sigma_i^2\big)\Delta t_k + \sigma_i\sqrt{\Delta t_k}\,(LZ_k)_i\Big),
 \qquad LL^\top = \rho,\; Z_k \sim \mathcal N(0, I_n)$$
 
-où $L$ est la factorisation de **Cholesky** de la matrice de corrélation lorsqu'elle est définie positive.
-Une matrice seulement semi-définie positive (corrélation de 1, bloc singulier) est acceptée : $L = V\sqrt{\max(w, 0)}$
-est alors construit à partir de la décomposition en valeurs propres $\rho = V\,\mathrm{diag}(w)\,V^\top$.
-Une matrice non semi-définie positive est rejetée.
+where $L$ is the **Cholesky** factor of the correlation matrix when it is positive definite.
+A matrix that is only positive semi-definite (correlation of 1, singular block) is accepted: $L = V\sqrt{\max(w, 0)}$
+is then built from the eigendecomposition $\rho = V\,\mathrm{diag}(w)\,V^\top$.
+A matrix that is not positive semi-definite is rejected.
 
-Les paramètres sont validés à la construction (valeurs finies, types d'option et de barrière, indices) et
-stockés dans des tableaux copiés en lecture seule : modèles et produits sont immuables, comparables et
-hachables par valeur.
+Parameters are validated at construction (finite values, option and barrier types, indices) and stored
+in copied read-only arrays: models and products are immutable, comparable and hashable by value.
 
-**Prix et intervalle de confiance.** Avec $Y_j$ les payoffs actualisés $\sum_k e^{-rt_k}\,CF_k$ (moyennés
-par paire $(Z, -Z)$ en antithétique, ce qui rend les $Y_j$ i.i.d.) :
+**Price and confidence interval.** With $Y_j$ the discounted payoffs $\sum_k e^{-rt_k}\,CF_k$ (averaged
+over each $(Z, -Z)$ pair when antithetic, which makes the $Y_j$ i.i.d.):
 
-$$\hat P = \frac1N\sum_j Y_j, \qquad \mathrm{SE} = \frac{s_Y}{\sqrt N}, \qquad IC_{95\%} = \hat P \pm 1{,}96\,\mathrm{SE}$$
+$$\hat P = \frac1N\sum_j Y_j, \qquad \mathrm{SE} = \frac{s_Y}{\sqrt N}, \qquad CI_{95\%} = \hat P \pm 1.96\,\mathrm{SE}$$
 
-**Payoff de l'autocall.** Performance (worst-of) à la date $t_k$ : $\mathrm{perf}_k = \min_i S_i(t_k)/S_i(0)$.
-Tant que le produit est vivant, à chaque date :
+**Autocall payoff.** (Worst-of) performance on date $t_k$: $\mathrm{perf}_k = \min_i S_i(t_k)/S_i(0)$.
+As long as the product is alive, on each date:
 
-- coupon $N\,c\,(1 + m)$ si $\mathrm{perf}_k \ge B_{\text{coupon}}$, avec $m$ le nombre de coupons manqués
-  (effet mémoire) ou $m = 0$ (sans mémoire) ;
-- rappel anticipé ($k$ < dernière date) : remboursement de $N$ si $\mathrm{perf}_k \ge B_{\text{rappel},k}$ ;
-- maturité : $N$ si $\mathrm{perf}_T \ge B_{\text{protection}}$ (observation européenne), sinon $N\cdot\mathrm{perf}_T$.
+- coupon $N\,c\,(1 + m)$ if $\mathrm{perf}_k \ge B_{\text{coupon}}$, where $m$ is the number of missed coupons
+  (memory effect) or $m = 0$ (no memory);
+- early redemption ($k$ < last date): repayment of $N$ if $\mathrm{perf}_k \ge B_{\text{call},k}$;
+- maturity: $N$ if $\mathrm{perf}_T \ge B_{\text{protection}}$ (European observation), otherwise $N\cdot\mathrm{perf}_T$.
 
-Par défaut $B_{\text{coupon}} = B_{\text{rappel}}$ et mémoire activée, soit l'autocall « Athena / snowball » classique.
+By default $B_{\text{coupon}} = B_{\text{call}}$ with memory on, i.e. the classic "Athena / snowball" autocall.
 
-**Grecques** (différences centrées, nombres aléatoires communs — même graine pour tous les prix bumpés) :
+**Greeks** (central differences, common random numbers — the same seed for every bumped price):
 
 $$\Delta_i = \frac{P(S_i+h)-P(S_i-h)}{2h},\quad \Gamma_i = \frac{P(S_i+h)-2P+P(S_i-h)}{h^2},\quad
 \mathcal V_i = \frac{P(\sigma_i+\epsilon)-P(\sigma_i-\epsilon)}{2\epsilon},\quad
 \frac{\partial P}{\partial\rho} = \frac{P(\rho+\delta)-P(\rho-\delta)}{2\delta}$$
 
-avec $h = 1\%\cdot S_i$, $\epsilon = \min(1\text{ point de vol},\ 10\%\cdot\sigma_i)$ (un choc fixe d'un point serait
-aussi grand que la vol elle-même pour les vols faibles, où le prix est très convexe en $\sigma$), $\delta = 0{,}01$ (décalage parallèle de toutes les
-corrélations hors diagonale, ou d'une seule paire). Les niveaux initiaux du produit sont figés avant le bump
-(sinon un autocall émis « aujourd'hui » aurait un delta nul par construction).
+with $h = 1\%\cdot S_i$, $\epsilon = \min(1\text{ vol point},\ 10\%\cdot\sigma_i)$ (a fixed one-point bump would
+be as large as the vol itself for low vols, where the price is very convex in $\sigma$), $\delta = 0.01$ (parallel shift of all
+off-diagonal correlations, or of a single pair). The product's initial levels are frozen before bumping
+(otherwise an autocall issued "today" would have a zero delta by construction).
 
 ## Installation
 
 ```bash
-pip install -e ".[dev]"   # librairie + pytest, QuantLib, matplotlib, nbconvert
+pip install -e ".[dev]"   # library + pytest, QuantLib, matplotlib, nbconvert
 ```
 
-## Exemple
+## Example
 
 ```python
 from autocall_pricer import (BlackScholesModel, MonteCarloEngine, Autocall,
                              WorstOfAutocall, compute_greeks, constant_correlation)
 
-obs = [0.25 * k for k in range(1, 13)]                  # 3 ans, trimestriel
+obs = [0.25 * k for k in range(1, 13)]                  # 3 years, quarterly
 model = BlackScholesModel(spots=[100.0], vols=[0.20], rate=0.03, dividends=[0.01])
 autocall = Autocall(obs, autocall_barrier=1.0, coupon=0.02, memory=True, protection_barrier=0.6)
 
@@ -87,22 +86,22 @@ wo = WorstOfAutocall(obs, assets=(0, 1, 2), coupon=0.025, coupon_barrier=0.7)
 print(compute_greeks(model3, wo, engine).as_table())
 ```
 
-Le notebook [`notebooks/demo.ipynb`](notebooks/demo.ipynb) montre la convergence et l'IC, l'effet des
-antithétiques, le profil de prix en fonction du spot, les grecques, la sensibilité à la corrélation et
-l'effet du nombre de sous-jacents.
+The notebook [`notebooks/demo.ipynb`](notebooks/demo.ipynb) shows convergence and the CI, the effect of
+antithetic variates, the price profile as a function of spot, the greeks, the correlation sensitivity and
+the effect of the number of underlyings.
 
-## Validation contre QuantLib
+## Validation against QuantLib
 
-`python -m autocall_pricer.validation` (400 000 chemins antithétiques, graine 2026,
-$S_0 = 100$, $r = 3\%$, $q = 1\%$, $\sigma = 20\%$, $T = 1$ an). Critère :
-$|\text{MC} - \text{QuantLib}| \le z\,\mathrm{SE} + \text{tolérance de modèle}$, avec
-$z = \Phi^{-1}(1 - \alpha / 2n) \approx 3{,}29$ pour $n = 10$ cas et $\alpha = 1\%$ (Bonferroni : si le moteur est
-juste, la probabilité qu'un cas au moins échoue vaut 1 %, quelle que soit la graine), la tolérance de modèle
-valant 0 pour les références exactes et 0,2 % du prix pour les barrières (correction de continuité
-Broadie-Glasserman-Kou : barrière continue décalée de $e^{\pm 0{,}5826\,\sigma\sqrt{\Delta t}}$ pour approcher la
-surveillance discrète quotidienne).
+`python -m autocall_pricer.validation` (400,000 antithetic paths, seed 2026,
+$S_0 = 100$, $r = 3\%$, $q = 1\%$, $\sigma = 20\%$, $T = 1$ year). Criterion:
+$|\text{MC} - \text{QuantLib}| \le z\,\mathrm{SE} + \text{model tolerance}$, with
+$z = \Phi^{-1}(1 - \alpha / 2n) \approx 3.29$ for $n = 10$ cases and $\alpha = 1\%$ (Bonferroni: if the engine is
+correct, the probability that at least one case fails is 1%, whatever the seed), the model tolerance
+being 0 for exact references and 0.2% of the price for barriers (Broadie-Glasserman-Kou continuity
+correction: continuous barrier shifted by $e^{\pm 0.5826\,\sigma\sqrt{\Delta t}}$ to approximate daily
+discrete monitoring).
 
-| Cas | Référence QuantLib | MC | Erreur std | QuantLib | Écart abs. | Tolérance | Écart / SE | OK |
+| Case | QuantLib reference | MC | Std error | QuantLib | Abs. diff | Tolerance | Diff / SE | OK |
 |---|---|---:|---:|---:|---:|---:|---:|:---:|
 | European call K=100 | AnalyticEuropeanEngine | 8.81481 | 0.01645 | 8.82732 | 0.01251 | 0.05412 | 0.76 | ✅ |
 | European put K=90 | AnalyticEuropeanEngine | 2.98606 | 0.00849 | 2.99429 | 0.00823 | 0.02793 | 0.97 | ✅ |
@@ -115,42 +114,42 @@ surveillance discrète quotidienne).
 | Worst-of call 2 assets K=95 rho=-0.3 | StulzEngine | 2.83909 | 0.00929 | 2.84620 | 0.00711 | 0.03056 | 0.77 | ✅ |
 | Autocall 1 date, cpn 8%, protection 70% | QL replication (ZC + digitals + put) | 0.99653 | 0.00010 | 0.99653 | 0.00000 | 0.00033 | 0.05 | ✅ |
 
-Le worst-of call à 2 actifs (formule de Stulz) valide la corrélation et la factorisation de Cholesky. L'autocall
-à une seule date d'observation se réplique exactement avec des instruments QuantLib ($x = S_T/S_0$) :
+The 2-asset worst-of call (Stulz formula) validates the correlation and the Cholesky factorisation. The
+autocall with a single observation date is replicated exactly with QuantLib instruments ($x = S_T/S_0$):
 
 $$\text{payoff} = 1 + c\,\mathbf 1_{x \ge B_r} - (B_p - x)^+ - (1 - B_p)\,\mathbf 1_{x < B_p}$$
 
-soit zéro-coupon + $c$ digitales call − put($K = B_pS_0$)$/S_0$ − $(1-B_p)$ digitales put.
+i.e. zero-coupon + $c$ digital calls − put($K = B_pS_0$)$/S_0$ − $(1-B_p)$ digital puts.
 
-Les tests (`pytest`, `pytest -m "not slow"` pour sauter les plus longs) couvrent aussi : payoffs sur
-chemins construits à la main (mémoire, Phoenix, step-down, non-rappel, protection européenne, worst-of),
-parité call-put et forward, convergence de l'erreur en $1/\sqrt N$, cas limites exacts (toujours rappelé ⇒
-$1{,}02\,e^{-r/4}$ ; jamais rappelé ⇒ zéro-coupon − put down-and-in européen, plus une bande de digitales pour
-les coupons Phoenix sans mémoire), worst-of à corrélation 1 égal au mono-sous-jacent, martingalité et
-corrélation empirique, monotonies (coupon, protection, mémoire, nombre de sous-jacents), grecques vanilles
-contre les formules fermées de Black-Scholes (`autocall_pricer.analytic`), signes et symétrie des grecques
-d'autocall, cohérence corrélation parallèle / par paire, validation des entrées et typage (`mypy`).
+The tests (`pytest`; `pytest -m "not slow"` skips the longest ones) also cover: payoffs on hand-built
+paths (memory, Phoenix, step-down, non-call period, European protection, worst-of), put-call and forward
+parity, $1/\sqrt N$ error convergence, exact limit cases (always called ⇒ $1.02\,e^{-r/4}$; never called ⇒
+zero-coupon − European down-and-in put, plus a strip of digitals for Phoenix coupons without memory),
+worst-of with correlation 1 equal to the single-underlying autocall, martingale property and empirical
+correlation, monotonicity (coupon, protection, memory, number of underlyings), vanilla greeks against the
+Black-Scholes closed forms (`autocall_pricer.analytic`), signs and symmetry of autocall greeks, consistency
+of parallel vs pairwise correlation sensitivity, input validation and typing (`mypy`).
 
-## Limites de la V1
+## V1 limitations
 
-- Modèle Black-Scholes à paramètres constants : pas de smile/skew (or les autocalls y sont très sensibles,
-  via la barrière de protection), pas de structure par terme des taux, dividendes en rendement continu.
-- Dates en fractions d'année, pas de calendrier ni de décalage de paiement ; coupons payés à la date
-  d'observation ; pas de risque de crédit de l'émetteur, pas de quanto.
-- Grecques par différences finies sur payoffs discontinus : gamma bruité près des barrières, coût
-  en $1 + 4n + 2$ pricings pour $n$ sous-jacents.
-- Les antithétiques réduisent peu la variance des autocalls (payoff dominé par des indicatrices).
-- Validation contre QuantLib limitée aux cas ayant une référence fermée ou quasi fermée ; l'autocall
-  multi-dates n'a pas de référence indépendante (testé par cas limites et propriétés).
+- Black-Scholes model with constant parameters: no smile/skew (to which autocalls are very sensitive,
+  through the protection barrier), no term structure of rates, dividends as a continuous yield.
+- Dates as year fractions, no calendar or payment lag; coupons paid on the observation date; no issuer
+  credit risk, no quanto.
+- Finite-difference greeks on discontinuous payoffs: noisy gamma near the barriers, cost of
+  $1 + 4n + 2$ pricings for $n$ underlyings.
+- Antithetic variates barely reduce the variance of autocalls (payoff dominated by indicators).
+- Validation against QuantLib limited to cases with a closed-form or quasi closed-form reference; the
+  multi-date autocall has no independent reference (tested through limit cases and properties).
 
-## Feuille de route
+## Roadmap
 
-- **V2 — cœur C++ avec AAD** : réécriture du moteur en C++ (bindings Python), différentiation automatique
-  adjointe pour obtenir toutes les sensibilités en un seul passage arrière ; lissage des payoffs
-  (« fuzzy barriers ») pour des grecques stables.
-- **Autres modèles de volatilité** : volatilité locale, volatilité stochastique, pour capturer le smile auquel
-  les autocalls sont sensibles.
+- **V2 — C++ core with AAD**: rewrite of the engine in C++ (Python bindings), adjoint algorithmic
+  differentiation to get all sensitivities in a single backward pass; payoff smoothing
+  ("fuzzy barriers") for stable greeks.
+- **Other volatility models**: local volatility, stochastic volatility, to capture the smile to which
+  autocalls are sensitive.
 
-## Licence
+## License
 
-MIT, voir [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
