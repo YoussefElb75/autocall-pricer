@@ -1,5 +1,7 @@
 # autocall-pricer
 
+[![CI](https://github.com/YoussefElb75/autocall-pricer/actions/workflows/ci.yml/badge.svg)](https://github.com/YoussefElb75/autocall-pricer/actions/workflows/ci.yml)
+
 Librairie Python de pricing **Monte Carlo** pour **autocalls** mono-sous-jacent et **worst-of autocalls**
 (2 à 5 sous-jacents) sous Black-Scholes multi-actifs corrélé, avec grecques par perturbation et
 **validation contre QuantLib**. Code écrit de zéro, à but pédagogique et de démonstration.
