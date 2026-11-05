@@ -27,7 +27,7 @@ testpaths = ["tests"]
 markers = ["slow: long-running Monte Carlo tests (deselect with -m \"not slow\")"]
 
 [tool.mypy]
-files = ["src/autocall_pricer"]
+files = ["src/autocall_pricer", "scripts"]
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
